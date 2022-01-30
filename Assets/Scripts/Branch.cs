@@ -9,7 +9,7 @@ public class Branch : MonoBehaviour
     private GameObject budPrefab;
 
     [SerializeField]
-    private GameObject lightSeedPrefab;
+    private GameObject[] lightSeedPrefabs;
 
     [SerializeField]
     private float baseAngleRange;
@@ -30,77 +30,76 @@ public class Branch : MonoBehaviour
     private float generateSpeedChance;
 
     [SerializeField]
+    private bool isUpper = true;
+
+    [SerializeField]
     private List<GameObject> buds = new List<GameObject>();
 
     private int RandomBudCount => Random.Range(minBudCount, maxBudCount);
 
-    private bool branchGenerated = false;
+    private bool canGrowBranch = true;
 
     // Start is called before the first frame update
     void Start()
     {
-        //int counter = 1;
-        //foreach(var bud in buds)
-        //{
-        //    bud.GetComponent<SpriteRenderer>().color = new Color(1f, 1f, 1f, 0f);
-        //    DOTweenModuleSprite.DOColor(bud.GetComponent<SpriteRenderer>(), new Color(1f, 1f, 1f, 1f), counter * 1f);
-        //    //bud.GetComponent<SpriteRenderer>().color.DO
-
-        //    ++counter;
-        //}
     }
 
     // Update is called once per frame
     void Update()
     {
-        //Vector2 mousePos = Input.mousePosition;
-        //var worldPoint = Camera.main.ScreenToWorldPoint(new Vector3(mousePos.x, mousePos.y, 10f));
-        //if (Input.GetMouseButtonDown(0))
-        //{
-        //    int count = Random.Range(minBudCount, maxBudCount);
-        //    float angle = Mathf.Deg2Rad * Random.Range(minBranchAngle, maxBranchAngle);
-        //    Generate(worldPoint, angle, count);
-        //}
     }
 
     [ContextMenu("Generate")]
-    void Generate()
+    public List<Branch> Generate()
     {
-        if(branchGenerated)
+        List<Branch> branches = new List<Branch>();
+
+        if (!canGrowBranch)
         {
             Debug.LogWarning($"Branch already generated");
-            return;
+            return branches;
         }
 
-        branchGenerated = false;
+        canGrowBranch = false;
 
         if (buds.Count <= 1)
         {
             Debug.LogError($"Too List Bugs: {buds.Count}");
-            return;
+            return branches;
         }
 
         {
             int fromIndex = Random.Range(1, buds.Count - 1);
             var targetBud = buds[fromIndex];
             float angle = GetLeftRandomBudAngle(targetBud.transform.rotation.eulerAngles.z);
-            CreateBranch(fromIndex, angle, RandomBudCount);
+            var newBranch = CreateBranch(fromIndex, angle, RandomBudCount, isUpper);
+            if(newBranch)
+            {
+                branches.Add(newBranch);
+            }
         }
 
         {
             int fromIndex = Random.Range(1, buds.Count - 1);
             var targetBud = buds[fromIndex];
             float angle = GetRightRandomBudAngle(targetBud.transform.rotation.eulerAngles.z);
-            CreateBranch(fromIndex, angle, RandomBudCount);
+            var newBranch = CreateBranch(fromIndex, angle, RandomBudCount, isUpper);
+            if (newBranch)
+            {
+                branches.Add(newBranch);
+            }
         }
+        return branches;
     }
 
     [ContextMenu("GenerateUpwardBranch")]
     void GenerateUpwardBranch()
     {
         StartCoroutine(Generate(Vector3.zero, 90f, 4, false));
+        //Generate(Vector3.zero, 90f, 4, false);
     }
 
+    //void Generate(Vector3 position, float angle, int count, bool skipFirst)
     IEnumerator Generate(Vector3 position, float angle, int count, bool skipFirst)
     {
         //Debug.Log($"[Branch::Generate], position: {position}, angle: {angle}, count: {count}");
@@ -117,6 +116,8 @@ public class Branch : MonoBehaviour
             budParent.localPosition = Vector3.zero;
         }
 
+        int lastSpriteIndex = -1;
+
         for (int i = 0; i < count; ++i)
         {
             if (skipFirst && i == 0)
@@ -124,15 +125,21 @@ public class Branch : MonoBehaviour
             }
             else
             {
-                GameObject bud = Instantiate(budPrefab);
-                bud.GetComponent<Bud>().Init();
+                var bud = Instantiate(budPrefab).GetComponent<Bud>();
+                int spriteIndex = -1;
+                do
+                {
+                    spriteIndex = bud.RandomSpriteIndex;
+                } while (lastSpriteIndex == spriteIndex);
+                lastSpriteIndex = spriteIndex;
+                bud.Init(this, spriteIndex);
                 bud.transform.parent = budParent;
                 bud.transform.localPosition = nextPos;
                 bud.transform.rotation = Quaternion.Euler(0f, 0f, angle);
                 bud.GetComponent<SpriteRenderer>().sortingOrder = count * -1 + i;
-                buds.Add(bud);
+                buds.Add(bud.gameObject);
 
-                yield return new WaitForSeconds(0.5f);
+                yield return new WaitForSeconds(Random.Range(0.3f, 0.6f));
             }
             Vector3 addPos = new Vector3(Mathf.Cos(Mathf.Deg2Rad * angle), Mathf.Sin(Mathf.Deg2Rad * angle), 0f) * budSize;
             nextPos += addPos;
@@ -141,7 +148,7 @@ public class Branch : MonoBehaviour
         bool generateSpeed = Random.Range(0f, 1f) <= generateSpeedChance;
         if(generateSpeed)
         {
-            GameObject bud = Instantiate(lightSeedPrefab);
+            GameObject bud = Instantiate(lightSeedPrefabs[Random.Range(0, lightSeedPrefabs.Length)]);
             bud.transform.parent = budParent;
             bud.transform.localPosition = nextPos;
             bud.transform.rotation = Quaternion.Euler(0f, 0f, angle);
@@ -149,20 +156,22 @@ public class Branch : MonoBehaviour
         }
     }
 
-    public void CreateBranch(int fromIndex, float angle, int count)
+    public Branch CreateBranch(int fromIndex, float angle, int count, bool isUpper)
     {
         if(fromIndex < 0 || fromIndex >= buds.Count)
         {
             Debug.LogError($"Invalid fromIndex: {fromIndex}");
-            return;
+            return null;
         }
 
         var targetBud = buds[fromIndex];
         Vector3 fromPos = targetBud.transform.position;
 
-        var branch = Instantiate<Branch>(GameMgr.Instance.GetBranchPrefab());
+        var branch = Instantiate<Branch>(isUpper? GameMgr.Instance.GetUpperBranchPrefab() : GameMgr.Instance.GetLowerBranchPrefab());
         branch.transform.position = targetBud.transform.position;
         StartCoroutine(branch.Generate(Vector3.zero, angle, count, true));
+        //branch.Generate(Vector3.zero, angle, count, true);
+        return branch;
     }
 
     private float GetRandomBudAngle(float angle)
@@ -214,5 +223,25 @@ public class Branch : MonoBehaviour
             }
         }
         return false;
+    }
+
+    public bool CanGrowBranch()
+    {
+        return canGrowBranch;
+    }
+
+    public GameObject GetLowestBud()
+    {
+        GameObject lowestBud = null;
+        float lowestY = float.MaxValue;
+        foreach (var bud in buds)
+        {
+            if(lowestY > bud.transform.position.y)
+            {
+                lowestY = bud.transform.position.y;
+                lowestBud = bud;
+            }
+        }
+        return lowestBud;
     }
 }
